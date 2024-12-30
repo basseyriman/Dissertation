@@ -15,6 +15,7 @@ interface AnalysisResult {
     MildDemented: number;
     ModerateDemented: number;
   };
+  attention_map_visualization: string;
 }
 
 export default function Home() {
@@ -72,11 +73,17 @@ export default function Home() {
     formData.append("file", file);
     
     try {
-      const response = await axios.post(
-        "http://localhost:8001/model/predict",
+    const response = await axios.post(
+      "http://localhost:8001/model/predict",
         formData
       );
       const analysisResult = response.data;
+      
+      console.log('Full response data:', analysisResult);
+      console.log('Attention map visualization present:', !!analysisResult.attention_map_visualization);
+      if (analysisResult.attention_map_visualization) {
+        console.log('Attention map visualization length:', analysisResult.attention_map_visualization.length);
+      }
       saveResult(analysisResult, file.name);
       setResult(analysisResult);
     } catch (error) {
@@ -95,7 +102,7 @@ export default function Home() {
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold text-gray-900 mb-4 tracking-tight">
             Brain MRI Analysis
-          </h1>
+        </h1>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
             Upload your MRI scan and analyze potential anomalies
           </p>
@@ -195,8 +202,8 @@ export default function Home() {
                       Confidence: {(result.class_probabilities[result.predicted_class] * 100).toFixed(1)}%
                     </div>
                   </div>
-                </div>
-                
+      </div>
+
                 {/* First show the predicted class probability */}
                 <div className="relative">
                   <div className="flex justify-between items-center mb-1">
@@ -253,28 +260,83 @@ export default function Home() {
             )}
           </div>
 
-          {/* Right Column: Scan Preview */}
-          <div className="w-full">
-            <div className="bg-white backdrop-blur-sm bg-opacity-90 rounded-2xl shadow-xl border border-gray-100 p-8 transition-all duration-300 hover:shadow-2xl">
-              <h2 className="text-xl font-semibold text-gray-900 mb-6 text-center">Scan Preview</h2>
-              <div className="w-full aspect-square relative rounded-xl overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 border border-gray-200">
-                {imageUrl ? (
-                  <Image
-                    src={imageUrl}
-                    alt="Scan preview"
-                    fill
-                    className="object-contain p-4 transition-opacity duration-300"
-                  />
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 space-y-4">
-                    <svg className="w-20 h-20 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <p className="text-lg font-medium">Upload scan to preview</p>
-                  </div>
-                )}
+          {/* Right Column: Scan Preview and Attention Map */}
+          <div className="w-full space-y-8">
+            {/* Original Scan - Hidden when attention map is shown */}
+            {!result?.attention_map_visualization && (
+              <div className="bg-white backdrop-blur-sm bg-opacity-90 rounded-2xl shadow-xl border border-gray-100 p-8 transition-all duration-300 hover:shadow-2xl">
+                <h2 className="text-xl font-semibold text-gray-900 mb-6 text-center">Scan Preview</h2>
+                <div className="w-full aspect-square relative rounded-xl overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 border border-gray-200">
+                  {imageUrl ? (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Image
+                        src={imageUrl}
+                        alt="Scan preview"
+                        fill
+                        className="object-contain"
+                        sizes="(max-width: 768px) 100vw, 50vw"
+                      />
+                    </div>
+                  ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 space-y-4">
+                      <svg className="w-20 h-20 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <p className="text-lg font-medium">Upload scan to preview</p>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Attention Map */}
+            {result?.attention_map_visualization && (
+              <div className="bg-white backdrop-blur-sm bg-opacity-90 rounded-2xl shadow-xl border border-gray-100 p-8 transition-all duration-300 hover:shadow-2xl">
+                <h2 className="text-xl font-semibold text-gray-900 mb-6 text-center">Model Attention Map</h2>
+                <div className="w-full max-w-md mx-auto">
+                  <Image
+                    src={`data:image/png;base64,${result.attention_map_visualization}`}
+                    alt="Model attention map"
+                    width={400}
+                    height={200}
+                    className="w-full"
+                    unoptimized
+                  />
+                  <div className="mt-4 space-y-2">
+                    <p className="text-sm text-gray-500 text-center">
+                      The colored regions show areas the model focused on for its prediction.
+                    </p>
+                    <p className="text-xs text-gray-400 text-center">
+                      Brighter areas indicate stronger attention weights
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Legend for Attention Map */}
+            {result?.attention_map_visualization && (
+              <div className="bg-white backdrop-blur-sm bg-opacity-90 rounded-2xl shadow-xl border border-gray-100 p-6">
+                <h3 className="text-sm font-medium text-gray-900 mb-4">Understanding the Visualization</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-8 h-8 rounded" style={{ background: 'linear-gradient(to right, #000080, #0000ff)' }} />
+                    <span className="text-sm text-gray-600">Low attention areas</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <div className="w-8 h-8 rounded" style={{ background: 'linear-gradient(to right, #00ffff, #ffff00)' }} />
+                    <span className="text-sm text-gray-600">Medium attention areas</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <div className="w-8 h-8 rounded" style={{ background: 'linear-gradient(to right, #ff8c00, #ff0000)' }} />
+                    <span className="text-sm text-gray-600">High attention areas</span>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 mt-4">
+                  Using "jet" colormap: Blue → Cyan → Yellow → Orange → Red
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

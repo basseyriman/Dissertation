@@ -11,6 +11,8 @@ The API uses a Vision Transformer (ViT-B32) model fine-tuned on brain MRI scans 
 - ModerateDemented
 - VeryMildDemented
 
+The API also provides attention map visualization to help understand which parts of the brain MRI the model focuses on when making predictions.
+
 ## Project Structure
 
 ```
@@ -111,9 +113,15 @@ Submit an MRI scan image for Alzheimer's classification.
     "ModerateDemented": 0.01,
     "NonDemented": 0.95,
     "VeryMildDemented": 0.02
-  }
+  },
+  "attention_map_visualization": "base64_encoded_image_string"
 }
 ```
+
+The `attention_map_visualization` field contains a base64-encoded PNG image showing:
+
+1. The original MRI scan
+2. The attention map overlay showing which regions the model focused on for prediction
 
 ### Interactive Documentation
 
@@ -161,6 +169,19 @@ Please feel free to submit issues and pull requests.
 ## License
 
 [Add your license information here]
+
+### Model Features
+
+#### Attention Map Visualization
+
+The API provides attention map visualization that shows which regions of the brain MRI the Vision Transformer model focuses on when making predictions. This helps in:
+
+- Understanding model decision-making
+- Identifying relevant brain regions
+- Validating model predictions
+- Providing additional diagnostic insights
+
+The visualization includes both the original image and an overlay showing attention weights using a jet colormap, where brighter colors indicate higher attention.
 
 ```
 

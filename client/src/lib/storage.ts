@@ -6,22 +6,26 @@ interface AnalysisResult {
     MildDemented: number;
     ModerateDemented: number;
   };
+  attention_map_visualization?: string; // Optional, not stored
 }
 
-export interface StoredResult extends AnalysisResult {
+export interface StoredResult {
   id: string;
   timestamp: string;
   fileName: string;
+  predicted_class: AnalysisResult['predicted_class'];
+  class_probabilities: AnalysisResult['class_probabilities'];
 }
 
 const STORAGE_KEY = 'alzdetect_results';
 
 export const saveResult = (result: AnalysisResult, fileName: string) => {
   const storedResult: StoredResult = {
-    ...result,
     id: Date.now().toString(),
     timestamp: new Date().toISOString(),
-    fileName
+    fileName,
+    predicted_class: result.predicted_class,
+    class_probabilities: result.class_probabilities
   };
 
   const existingResults = getResults();

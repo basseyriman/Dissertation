@@ -11,3 +11,4 @@ vit-keras
 tensorflow-addons
 typing-extensions
 opencv-python
+matplotlib
