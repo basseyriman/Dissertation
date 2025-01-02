@@ -144,7 +144,7 @@ export default function Results() {
           </style>
         </head>
         <body>
-          ${selectedItems.map((result, index) => `
+          ${selectedItems.map((result) => `
             <div class="report-page">
               <div class="header">
                 <div class="title">AlzDetect Analysis Report</div>
