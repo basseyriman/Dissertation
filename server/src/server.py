@@ -24,23 +24,33 @@ app = FastAPI(
 # Configure CORS
 origins = [
     "http://localhost:3000",
-    "https://alzheimers-detection.onrender.com",
+    "https://dissertation-naob.onrender.com",
     "https://dissertation-ruby.vercel.app",
-    "https://dissertation-7btvsdelz-bassey-rimans-projects.vercel.app"
+    "https://dissertation-7btvsdelz-bassey-rimans-projects.vercel.app",
+    "*"  # Allow all origins temporarily for debugging
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
     allow_credentials=True,
 )
 
-# Include all routes
-app.include_router(root_route, prefix="", tags=["root"])
-app.include_router(model_route, prefix="/model", tags=["model"])
-app.include_router(test_route, prefix="/test", tags=["test"])
+# Remove prefix from model route since it's already defined in the router
+app.include_router(root_route)
+app.include_router(model_route)  # model_route already has prefix="/model"
+app.include_router(test_route)
+
+# Add a test endpoint to verify the server is running
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "message": "Server is running"}
 
 if __name__ == "__main__":
+    print(f"Starting server on port {PORT}")
+    print(f"Available routes:")
+    for route in app.routes:
+        print(f"{route.methods} {route.path}")
     uvicorn.run("src.server:app", host="0.0.0.0", port=int(PORT))
