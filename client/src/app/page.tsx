@@ -84,7 +84,7 @@ export default function Home() {
     
     try {
     const response = await axios.post(
-      "http://localhost:8001/model/predict",
+      `${process.env.NEXT_PUBLIC_SERVER_HOST}/model/predict`,
         formData
       );
       const analysisResult = response.data;
