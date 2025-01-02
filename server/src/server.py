@@ -2,7 +2,7 @@ import os
 import uvicorn
 from fastapi import FastAPI
 from dotenv import load_dotenv
-from src.routes.root_route import app_route
+from .routes.root_route import app_route
 from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
