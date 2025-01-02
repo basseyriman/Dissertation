@@ -23,9 +23,10 @@ app = FastAPI(
 
 # Configure CORS
 origins = [
-    'http://localhost:3000',
-    'https://alzheimers-detection.onrender.com',  # Add your production frontend URL
-    'https://dissertation-ruby.vercel.app/'
+    "http://localhost:3000",
+    "https://alzheimers-detection.onrender.com",
+    "https://dissertation-ruby.vercel.app",
+    "https://dissertation-7btvsdelz-bassey-rimans-projects.vercel.app"
 ]
 
 app.add_middleware(
