@@ -15,7 +15,6 @@ from src.routes.model_route import model_route
 from src.routes.test_route import test_route
 
 load_dotenv()
-PORT = os.getenv("PORT", "8000")
 
 # Initialize FastAPI with custom error handling
 app = FastAPI(
@@ -27,14 +26,18 @@ app = FastAPI(
 # Configure CORS with all necessary headers
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
-    allow_credentials=False,  # Must be False when allow_origins=["*"]
-    allow_methods=["*"],  # Allow all methods
-    allow_headers=["*"],  # Allow all headers
-    expose_headers=["*"],  # Expose all headers
-    max_age=3600,  # Cache preflight requests for 1 hour
+    allow_origins=[
+        "https://dissertation-7btvsdelz-bassey-rimans-projects.vercel.app",
+        "https://dissertation-git-main-bassey-rimans-projects.vercel.app",
+        "https://dissertation-ruby.vercel.app",
+        "https://dissertation-naob.onrender.com",
+        "http://localhost:3000",
+        "*"  # Temporarily allow all origins for debugging
+    ],
+    allow_credentials=False,  # Must be False when using wildcard origin
+    allow_methods=["*"],
+    allow_headers=["*"]
 )
-
 
 # Error handler for connection reset errors
 @app.middleware("http")
@@ -48,29 +51,24 @@ async def catch_exceptions_middleware(request: Request, call_next):
             content={"detail": "Internal server error"}
         )
 
-
 # Include routes
 app.include_router(root_route)
 app.include_router(model_route)
 app.include_router(test_route)
 
-
 # Health check endpoint
-@app.get("/health")
+@app.get("/healthz")  # Changed to match your health check path
 async def health_check():
     return {"status": "healthy", "message": "Server is running"}
 
-
 if __name__ == "__main__":
-    # Configure uvicorn with proper settings
+    port = int(os.environ.get("PORT", 8000))  # Changed default to 8000
+    print(f"Starting server on port {port}")
     uvicorn.run(
-        "src.server:app",
+        app,  # Changed to use app directly
         host="0.0.0.0",
-        port=int(PORT),
+        port=port,
         workers=1,
         limit_concurrency=10,
-        timeout_keep_alive=30,
-        forwarded_allow_ips="*",
-        proxy_headers=True,
-        server_header=False
+        timeout_keep_alive=30
     )
