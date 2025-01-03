@@ -26,14 +26,9 @@ app = FastAPI(
 
 # Configure CORS with all necessary headers
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
-    allow_credentials=False,  # Must be False when allow_origins=["*"]
-    allow_methods=["*"],  # Allow all methods
-    allow_headers=["*"],  # Allow all headers
-    expose_headers=["*"],  # Expose all headers
-    max_age=3600,  # Cache preflight requests for 1 hour
+    "*"
 )
+
 
 # Error handler for connection reset errors
 @app.middleware("http")
@@ -47,15 +42,18 @@ async def catch_exceptions_middleware(request: Request, call_next):
             content={"detail": "Internal server error"}
         )
 
+
 # Include routes
 app.include_router(root_route)
 app.include_router(model_route)
 app.include_router(test_route)
 
+
 # Health check endpoint
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "message": "Server is running"}
+
 
 if __name__ == "__main__":
     # Configure uvicorn with proper settings
