@@ -1,3 +1,8 @@
+import matplotlib
+# Use Agg backend to prevent display issues
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+plt.ioff()  # Turn off interactive mode
 import io
 import os
 import base64
@@ -7,7 +12,6 @@ import tensorflow as tf
 import numpy as np
 from PIL import Image
 from vit_keras import vit
-import matplotlib.pyplot as plt
 
 model_route = APIRouter(prefix="/model", tags=["model"])
 
@@ -130,36 +134,38 @@ def generate_attention_map(image_array):
 
 def plot_attention_overlay(image_array, attention_map):
     try:
+        # Set a smaller figure size and lower DPI for memory efficiency
         if attention_map is None:
-            # If attention map generation failed, return only the original image
-            plt.figure(figsize=(5, 5))
+            fig = plt.figure(figsize=(4, 4), dpi=100)
             plt.imshow(image_array)
             plt.title("Original Image (Attention Map Unavailable)")
             plt.axis("off")
         else:
-            plt.figure(figsize=(10, 5))
-
+            fig = plt.figure(figsize=(8, 4), dpi=100)
+            
             # Plot original image
             plt.subplot(1, 2, 1)
             plt.imshow(image_array)
             plt.title("Original Image")
             plt.axis("off")
-
+            
             # Plot image with attention overlay
             plt.subplot(1, 2, 2)
             plt.imshow(image_array)
             plt.imshow(attention_map.squeeze(), cmap="jet", alpha=0.5)
             plt.title("Attention Map Overlay")
             plt.axis("off")
-
-        # Save plot to bytes buffer
+        
+        # Save plot with lower quality for faster processing
         buf = io.BytesIO()
-        plt.savefig(buf, format='png', bbox_inches='tight')
-        plt.close()
+        plt.savefig(buf, format='png', bbox_inches='tight', 
+                   dpi=100, quality=85, optimize=True)
+        plt.close(fig)
         buf.seek(0)
-
-        # Convert to base64
+        
+        # Convert to base64 with reduced quality
         img_str = base64.b64encode(buf.getvalue()).decode()
+        buf.close()
         return img_str
     except Exception as e:
         print(f"Error plotting attention overlay: {str(e)}")
@@ -179,20 +185,44 @@ async def predict_model(file: UploadFile):
     try:
         print('File received')
         
-        # Read file in chunks to save memory
-        chunk_size = 1024 * 1024  # 1MB chunks
+        # Validate file size before processing
+        file_size = 0
         contents = b""
-        while chunk := await file.read(chunk_size):
+        chunk_size = 1024 * 1024  # 1MB chunks
+        max_size = 10 * 1024 * 1024  # 10MB limit
+        
+        while True:
+            chunk = await file.read(chunk_size)
+            if not chunk:
+                break
+            file_size += len(chunk)
+            if file_size > max_size:
+                raise HTTPException(
+                    status_code=413,
+                    detail="File too large. Maximum size is 10MB."
+                )
             contents += chunk
             
-        # Process image
-        img = Image.open(io.BytesIO(contents))
-        img = img.resize((224, 224))
-        img_array = np.array(img)
-        
-        # Free up memory
-        del contents
-        img.close()
+        # Process image with error handling
+        img = None
+        try:
+            img = Image.open(io.BytesIO(contents))
+            if img.mode not in ['RGB', 'L']:
+                img = img.convert('RGB')
+            img = img.resize((224, 224), Image.Resampling.LANCZOS)
+            img_array = np.array(img)
+        except Exception as img_error:
+            if img:
+                img.close()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid image format: {str(img_error)}"
+            )
+        finally:
+            # Clean up
+            del contents
+            if img:
+                img.close()
         
         # Process image array
         if len(img_array.shape) == 2:
@@ -200,49 +230,60 @@ async def predict_model(file: UploadFile):
         elif img_array.shape[-1] == 4:
             img_array = img_array[:, :, :3]
         
-        original_img_array = img_array.copy()
-        img_array = img_array / 255.0
-        img_array = np.expand_dims(img_array, axis=0)
+        # Store normalized copy for prediction
+        input_array = img_array.astype(np.float32) / 255.0
+        input_array = np.expand_dims(input_array, axis=0)
         
-        # Make prediction
-        load_model_if_needed()
-        with tf.device('/CPU:0'):
-            prediction = MODEL.predict(img_array, batch_size=1)
-        
-        # Generate attention map
-        attention_map = generate_attention_map(img_array)
-        visualization = plot_attention_overlay(original_img_array, attention_map)
-        
-        # Clean up
-        del img_array
-        del original_img_array
-        
-        # Process results
-        class_probabilities = prediction[0].tolist()
-        prediction_results = {
-            class_name: float(prob)
-            for class_name, prob in zip(CLASS_NAMES, class_probabilities)
-        }
-        
-        predicted_class = CLASS_NAMES[np.argmax(prediction[0])]
-        confidence = float(np.max(prediction[0]))
-        
-        # Clear session to free memory
-        tf.keras.backend.clear_session()
-        
-        return {
-            "file_name": file.filename,
-            "predicted_class": predicted_class,
-            "confidence": confidence,
-            "class_probabilities": prediction_results,
-            "attention_map_visualization": visualization if visualization else None
-        }
-        
+        try:
+            # Make prediction
+            load_model_if_needed()
+            with tf.device('/CPU:0'):
+                prediction = MODEL.predict(input_array, batch_size=1)
+            
+            # Generate attention map
+            attention_map = generate_attention_map(input_array)
+            visualization = plot_attention_overlay(img_array, attention_map)
+            
+            # Process results
+            predicted_class = CLASS_NAMES[np.argmax(prediction[0])]
+            confidence = float(np.max(prediction[0]))
+            prediction_results = {
+                class_name: float(prob)
+                for class_name, prob in zip(CLASS_NAMES, prediction[0].tolist())
+            }
+            
+            # Clean up
+            del input_array
+            del img_array
+            if attention_map is not None:
+                del attention_map
+            
+            # Clear session to free memory
+            tf.keras.backend.clear_session()
+            
+            return {
+                "file_name": file.filename,
+                "predicted_class": predicted_class,
+                "confidence": confidence,
+                "class_probabilities": prediction_results,
+                "attention_map_visualization": visualization
+            }
+            
+        except Exception as pred_error:
+            # Clear memory before raising error
+            tf.keras.backend.clear_session()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Prediction error: {str(pred_error)}"
+            )
+            
+    except HTTPException as he:
+        raise he
     except Exception as e:
         print(f"Error during prediction: {str(e)}")
         import traceback
-        print(f"Full traceback: {traceback.format_exc()}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=500,
-            detail=f"Error during prediction: {str(e)}"
+            detail=f"An unexpected error occurred: {str(e)}"
         )
