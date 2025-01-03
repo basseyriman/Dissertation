@@ -43,7 +43,13 @@ def load_model_if_needed():
     if MODEL is None:
         print("Loading model for the first time...")
         try:
-            # Create base model
+            # Enable memory growth to prevent TensorFlow from allocating all GPU memory
+            gpus = tf.config.experimental.list_physical_devices('GPU')
+            if gpus:
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+            
+            # Create base model with memory-efficient settings
             vit_model = vit.vit_b32(
                 image_size=224,
                 pretrained=True,
@@ -56,14 +62,18 @@ def load_model_if_needed():
             inputs = tf.keras.layers.Input(shape=(224, 224, 3))
             x = vit_model(inputs, training=False)
             x = tf.keras.layers.Dense(256, activation='relu',
-                                      kernel_regularizer=tf.keras.regularizers.L2(0.01))(x)
+                                    kernel_regularizer=tf.keras.regularizers.L2(0.01))(x)
             x = tf.keras.layers.Dropout(0.4)(x)
             outputs = tf.keras.layers.Dense(4, activation='softmax')(x)
 
             MODEL = tf.keras.Model(inputs, outputs)
 
-            # Load weights
-            MODEL.load_weights('./model/RimanBassey_model.h5')
+            # Load weights with memory mapping
+            MODEL.load_weights('./model/RimanBassey_model.h5', by_name=True)
+            
+            # Clear TensorFlow session to free memory
+            tf.keras.backend.clear_session()
+            
             print("Model loaded successfully")
         except Exception as e:
             print(f"Error loading model: {str(e)}")
@@ -168,97 +178,71 @@ async def get_model():
 async def predict_model(file: UploadFile):
     try:
         print('File received')
-        pprint(file)
-
-        # Validate file exists
-        if not file:
-            raise HTTPException(status_code=400, detail="No file uploaded")
-
-        try:
-            file_content = await file.read()
-            img = Image.open(io.BytesIO(file_content))
-        except Exception as e:
-            print(f"Error reading image file: {str(e)}")
-            raise HTTPException(status_code=400, detail=f"Error reading image file: {str(e)}")
-
-        try:
-            img = img.resize((224, 224))
-            img_array = np.array(img)
-
-            # Ensure image has 3 channels
-            if len(img_array.shape) == 2:  # If grayscale
-                img_array = np.stack((img_array,) * 3, axis=-1)
-            elif img_array.shape[-1] == 4:  # If RGBA
-                img_array = img_array[:, :, :3]
-
-            # Store original image array for visualization
-            original_img_array = img_array.copy()
-
-            # Normalize and add batch dimension
-            img_array = img_array / 255.0
-            img_array = np.expand_dims(img_array, axis=0)
-
-            print(f"Input shape: {img_array.shape}")  # Debug print
-
-        except Exception as e:
-            print(f"Error preprocessing image: {str(e)}")
-            print(f"Original image shape: {np.array(img).shape}")  # Debug print
-            raise HTTPException(status_code=500, detail=f"Error preprocessing image: {str(e)}")
-
-        try:
-            # Load or get the model
-            load_model_if_needed()
-
-            print("Making prediction...")
-            with tf.device('/CPU:0'):
-                prediction = MODEL.predict(img_array, batch_size=1)
-            print("Prediction completed")
-
-            # Generate attention map
-            print("Generating attention map...")
-            attention_map = generate_attention_map(img_array)
-            print(f"Attention map present: {attention_map is not None}")
-
-            # Create visualization
-            visualization = plot_attention_overlay(original_img_array, attention_map)
-            print(f"Visualization generated: {visualization is not None}")
-
-            # Get probabilities and make prediction
-            class_probabilities = prediction[0].tolist()
-            prediction_results = {
-                class_name: float(prob)
-                for class_name, prob in zip(CLASS_NAMES, class_probabilities)
-            }
-
-            predicted_class = CLASS_NAMES[np.argmax(prediction[0])]
-            confidence = float(np.max(prediction[0]))
-
-            print(type(visualization))
-            print(visualization)
-
-            return {
-                "file_name": file.filename,
-                "predicted_class": predicted_class,
-                "confidence": confidence,
-                "class_probabilities": prediction_results,
-                "attention_map_visualization": visualization if visualization else None
-            }
-
-        except Exception as e:
-            print(f"Error during prediction: {str(e)}")
-            print(f"Error type: {type(e)}")
-            import traceback
-            print(f"Full traceback: {traceback.format_exc()}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error during prediction: {str(e)}"
-            )
-
-    except HTTPException as he:
-        raise he
+        
+        # Read file in chunks to save memory
+        chunk_size = 1024 * 1024  # 1MB chunks
+        contents = b""
+        while chunk := await file.read(chunk_size):
+            contents += chunk
+            
+        # Process image
+        img = Image.open(io.BytesIO(contents))
+        img = img.resize((224, 224))
+        img_array = np.array(img)
+        
+        # Free up memory
+        del contents
+        img.close()
+        
+        # Process image array
+        if len(img_array.shape) == 2:
+            img_array = np.stack((img_array,) * 3, axis=-1)
+        elif img_array.shape[-1] == 4:
+            img_array = img_array[:, :, :3]
+        
+        original_img_array = img_array.copy()
+        img_array = img_array / 255.0
+        img_array = np.expand_dims(img_array, axis=0)
+        
+        # Make prediction
+        load_model_if_needed()
+        with tf.device('/CPU:0'):
+            prediction = MODEL.predict(img_array, batch_size=1)
+        
+        # Generate attention map
+        attention_map = generate_attention_map(img_array)
+        visualization = plot_attention_overlay(original_img_array, attention_map)
+        
+        # Clean up
+        del img_array
+        del original_img_array
+        
+        # Process results
+        class_probabilities = prediction[0].tolist()
+        prediction_results = {
+            class_name: float(prob)
+            for class_name, prob in zip(CLASS_NAMES, class_probabilities)
+        }
+        
+        predicted_class = CLASS_NAMES[np.argmax(prediction[0])]
+        confidence = float(np.max(prediction[0]))
+        
+        # Clear session to free memory
+        tf.keras.backend.clear_session()
+        
+        return {
+            "file_name": file.filename,
+            "predicted_class": predicted_class,
+            "confidence": confidence,
+            "class_probabilities": prediction_results,
+            "attention_map_visualization": visualization if visualization else None
+        }
+        
     except Exception as e:
-        print(f"Unexpected error: {str(e)}")
+        print(f"Error during prediction: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=500,
-            detail=f"An unexpected error occurred: {str(e)}"
+            detail=f"Error during prediction: {str(e)}"
         )
