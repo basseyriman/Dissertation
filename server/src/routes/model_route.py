@@ -63,7 +63,7 @@ def load_model_if_needed():
             MODEL = tf.keras.Model(inputs, outputs)
 
             # Load weights
-            MODEL.load_weights('./model/RimanBassey_model.h5')
+            MODEL.load_weights('../model/RimanBassey_model.h5')
             print("Model loaded successfully")
         except Exception as e:
             print(f"Error loading model: {str(e)}")
