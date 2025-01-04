@@ -1,6 +1,7 @@
 import io
 import os
 import base64
+from pathlib import Path
 from fastapi import APIRouter, File, UploadFile, HTTPException
 from rich.pretty import pprint
 import tensorflow as tf
@@ -11,6 +12,10 @@ import matplotlib.pyplot as plt
 
 model_route = APIRouter(prefix="/model", tags=["model"])
 
+# Get the absolute path to the model file
+CURRENT_DIR = Path(__file__).parent.resolve()
+PROJECT_ROOT = CURRENT_DIR.parent.parent
+MODEL_PATH = os.path.join(PROJECT_ROOT, "model", "RimanBassey_model.h5")
 
 # Defining custom F1 Score metric
 class F1Score(tf.keras.metrics.Metric):
@@ -42,6 +47,7 @@ def load_model_if_needed():
     global MODEL
     if MODEL is None:
         print("Loading model for the first time...")
+        print(f"Looking for model at: {MODEL_PATH}")
         try:
             # Create base model
             vit_model = vit.vit_b32(
@@ -62,11 +68,17 @@ def load_model_if_needed():
 
             MODEL = tf.keras.Model(inputs, outputs)
 
+            # Check if model file exists
+            if not os.path.exists(MODEL_PATH):
+                raise FileNotFoundError(f"Model file not found at {MODEL_PATH}")
+
             # Load weights
-            MODEL.load_weights('../model/RimanBassey_model.h5')
+            MODEL.load_weights(MODEL_PATH)
             print("Model loaded successfully")
         except Exception as e:
             print(f"Error loading model: {str(e)}")
+            print(f"Current working directory: {os.getcwd()}")
+            print(f"Directory contents: {os.listdir(os.getcwd())}")
             raise e
 
 
