@@ -15,7 +15,8 @@ model_route = APIRouter(prefix="/model", tags=["model"])
 # Get the absolute path to the model file
 CURRENT_DIR = Path(__file__).parent.resolve()
 PROJECT_ROOT = CURRENT_DIR.parent.parent
-MODEL_PATH = os.path.join(PROJECT_ROOT, "model", "RimanBassey_model.h5")
+MODEL_PATH = os.path.join(PROJECT_ROOT, 'src', "model", "RimanBassey_model.h5")
+
 
 # Defining custom F1 Score metric
 class F1Score(tf.keras.metrics.Metric):
