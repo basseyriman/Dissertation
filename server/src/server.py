@@ -27,17 +27,13 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://dissertation-7btvsdelz-bassey-rimans-projects.vercel.app",
-        "https://dissertation-git-main-bassey-rimans-projects.vercel.app",
-        "https://dissertation-ruby.vercel.app",
-        "https://dissertation-naob.onrender.com",
-        "http://localhost:3000",
         "*"  # Temporarily allow all origins for debugging
     ],
     allow_credentials=False,  # Must be False when using wildcard origin
     allow_methods=["*"],
     allow_headers=["*"]
 )
+
 
 # Error handler for connection reset errors
 @app.middleware("http")
@@ -51,15 +47,18 @@ async def catch_exceptions_middleware(request: Request, call_next):
             content={"detail": "Internal server error"}
         )
 
+
 # Include routes
 app.include_router(root_route)
 app.include_router(model_route)
 app.include_router(test_route)
 
+
 # Health check endpoint
 @app.get("/healthz")  # Changed to match your health check path
 async def health_check():
     return {"status": "healthy", "message": "Server is running"}
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))  # Changed default to 8000
