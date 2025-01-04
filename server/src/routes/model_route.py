@@ -1,8 +1,3 @@
-import matplotlib
-# Use Agg backend to prevent display issues
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-plt.ioff()  # Turn off interactive mode
 import io
 import os
 import base64
@@ -12,6 +7,7 @@ import tensorflow as tf
 import numpy as np
 from PIL import Image
 from vit_keras import vit
+import matplotlib.pyplot as plt
 
 model_route = APIRouter(prefix="/model", tags=["model"])
 
@@ -47,13 +43,7 @@ def load_model_if_needed():
     if MODEL is None:
         print("Loading model for the first time...")
         try:
-            # Enable memory growth to prevent TensorFlow from allocating all GPU memory
-            gpus = tf.config.experimental.list_physical_devices('GPU')
-            if gpus:
-                for gpu in gpus:
-                    tf.config.experimental.set_memory_growth(gpu, True)
-            
-            # Create base model with memory-efficient settings
+            # Create base model
             vit_model = vit.vit_b32(
                 image_size=224,
                 pretrained=True,
@@ -66,18 +56,14 @@ def load_model_if_needed():
             inputs = tf.keras.layers.Input(shape=(224, 224, 3))
             x = vit_model(inputs, training=False)
             x = tf.keras.layers.Dense(256, activation='relu',
-                                    kernel_regularizer=tf.keras.regularizers.L2(0.01))(x)
+                                      kernel_regularizer=tf.keras.regularizers.L2(0.01))(x)
             x = tf.keras.layers.Dropout(0.4)(x)
             outputs = tf.keras.layers.Dense(4, activation='softmax')(x)
 
             MODEL = tf.keras.Model(inputs, outputs)
 
-            # Load weights with memory mapping
-            MODEL.load_weights('./model/RimanBassey_model.h5', by_name=True)
-            
-            # Clear TensorFlow session to free memory
-            tf.keras.backend.clear_session()
-            
+            # Load weights
+            MODEL.load_weights('./model/RimanBassey_model.h5')
             print("Model loaded successfully")
         except Exception as e:
             print(f"Error loading model: {str(e)}")
@@ -134,38 +120,36 @@ def generate_attention_map(image_array):
 
 def plot_attention_overlay(image_array, attention_map):
     try:
-        # Set a smaller figure size and lower DPI for memory efficiency
         if attention_map is None:
-            fig = plt.figure(figsize=(4, 4), dpi=100)
+            # If attention map generation failed, return only the original image
+            plt.figure(figsize=(5, 5))
             plt.imshow(image_array)
             plt.title("Original Image (Attention Map Unavailable)")
             plt.axis("off")
         else:
-            fig = plt.figure(figsize=(8, 4), dpi=100)
-            
+            plt.figure(figsize=(10, 5))
+
             # Plot original image
             plt.subplot(1, 2, 1)
             plt.imshow(image_array)
             plt.title("Original Image")
             plt.axis("off")
-            
+
             # Plot image with attention overlay
             plt.subplot(1, 2, 2)
             plt.imshow(image_array)
             plt.imshow(attention_map.squeeze(), cmap="jet", alpha=0.5)
             plt.title("Attention Map Overlay")
             plt.axis("off")
-        
-        # Save plot with lower quality for faster processing
+
+        # Save plot to bytes buffer
         buf = io.BytesIO()
-        plt.savefig(buf, format='png', bbox_inches='tight', 
-                   dpi=100, quality=85, optimize=True)
-        plt.close(fig)
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        plt.close()
         buf.seek(0)
-        
-        # Convert to base64 with reduced quality
+
+        # Convert to base64
         img_str = base64.b64encode(buf.getvalue()).decode()
-        buf.close()
         return img_str
     except Exception as e:
         print(f"Error plotting attention overlay: {str(e)}")
@@ -184,105 +168,96 @@ async def get_model():
 async def predict_model(file: UploadFile):
     try:
         print('File received')
-        
-        # Validate file size before processing
-        file_size = 0
-        contents = b""
-        chunk_size = 1024 * 1024  # 1MB chunks
-        max_size = 10 * 1024 * 1024  # 10MB limit
-        
-        while True:
-            chunk = await file.read(chunk_size)
-            if not chunk:
-                break
-            file_size += len(chunk)
-            if file_size > max_size:
-                raise HTTPException(
-                    status_code=413,
-                    detail="File too large. Maximum size is 10MB."
-                )
-            contents += chunk
-            
-        # Process image with error handling
-        img = None
+        pprint(file)
+
+        # Validate file exists
+        if not file:
+            raise HTTPException(status_code=400, detail="No file uploaded")
+
         try:
-            img = Image.open(io.BytesIO(contents))
-            if img.mode not in ['RGB', 'L']:
-                img = img.convert('RGB')
-            img = img.resize((224, 224), Image.Resampling.LANCZOS)
+            file_content = await file.read()
+            img = Image.open(io.BytesIO(file_content))
+        except Exception as e:
+            print(f"Error reading image file: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Error reading image file: {str(e)}")
+
+        try:
+            img = img.resize((224, 224))
             img_array = np.array(img)
-        except Exception as img_error:
-            if img:
-                img.close()
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid image format: {str(img_error)}"
-            )
-        finally:
-            # Clean up
-            del contents
-            if img:
-                img.close()
-        
-        # Process image array
-        if len(img_array.shape) == 2:
-            img_array = np.stack((img_array,) * 3, axis=-1)
-        elif img_array.shape[-1] == 4:
-            img_array = img_array[:, :, :3]
-        
-        # Store normalized copy for prediction
-        input_array = img_array.astype(np.float32) / 255.0
-        input_array = np.expand_dims(input_array, axis=0)
-        
+
+            # Ensure image has 3 channels
+            if len(img_array.shape) == 2:  # If grayscale
+                img_array = np.stack((img_array,) * 3, axis=-1)
+            elif img_array.shape[-1] == 4:  # If RGBA
+                img_array = img_array[:, :, :3]
+
+            # Store original image array for visualization
+            original_img_array = img_array.copy()
+
+            # Normalize and add batch dimension
+            img_array = img_array / 255.0
+            img_array = np.expand_dims(img_array, axis=0)
+
+            print(f"Input shape: {img_array.shape}")  # Debug print
+
+        except Exception as e:
+            print(f"Error preprocessing image: {str(e)}")
+            print(f"Original image shape: {np.array(img).shape}")  # Debug print
+            raise HTTPException(status_code=500, detail=f"Error preprocessing image: {str(e)}")
+
         try:
-            # Make prediction
+            # Load or get the model
             load_model_if_needed()
+
+            print("Making prediction...")
             with tf.device('/CPU:0'):
-                prediction = MODEL.predict(input_array, batch_size=1)
-            
+                prediction = MODEL.predict(img_array, batch_size=1)
+            print("Prediction completed")
+
             # Generate attention map
-            attention_map = generate_attention_map(input_array)
-            visualization = plot_attention_overlay(img_array, attention_map)
-            
-            # Process results
-            predicted_class = CLASS_NAMES[np.argmax(prediction[0])]
-            confidence = float(np.max(prediction[0]))
+            print("Generating attention map...")
+            attention_map = generate_attention_map(img_array)
+            print(f"Attention map present: {attention_map is not None}")
+
+            # Create visualization
+            visualization = plot_attention_overlay(original_img_array, attention_map)
+            print(f"Visualization generated: {visualization is not None}")
+
+            # Get probabilities and make prediction
+            class_probabilities = prediction[0].tolist()
             prediction_results = {
                 class_name: float(prob)
-                for class_name, prob in zip(CLASS_NAMES, prediction[0].tolist())
+                for class_name, prob in zip(CLASS_NAMES, class_probabilities)
             }
-            
-            # Clean up
-            del input_array
-            del img_array
-            if attention_map is not None:
-                del attention_map
-            
-            # Clear session to free memory
-            tf.keras.backend.clear_session()
-            
+
+            predicted_class = CLASS_NAMES[np.argmax(prediction[0])]
+            confidence = float(np.max(prediction[0]))
+
+            print(type(visualization))
+            print(visualization)
+
             return {
                 "file_name": file.filename,
                 "predicted_class": predicted_class,
                 "confidence": confidence,
                 "class_probabilities": prediction_results,
-                "attention_map_visualization": visualization
+                "attention_map_visualization": visualization if visualization else None
             }
-            
-        except Exception as pred_error:
-            # Clear memory before raising error
-            tf.keras.backend.clear_session()
+
+        except Exception as e:
+            print(f"Error during prediction: {str(e)}")
+            print(f"Error type: {type(e)}")
+            import traceback
+            print(f"Full traceback: {traceback.format_exc()}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Prediction error: {str(pred_error)}"
+                detail=f"Error during prediction: {str(e)}"
             )
-            
+
     except HTTPException as he:
         raise he
     except Exception as e:
-        print(f"Error during prediction: {str(e)}")
-        import traceback
-        print(f"Traceback: {traceback.format_exc()}")
+        print(f"Unexpected error: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"An unexpected error occurred: {str(e)}"
